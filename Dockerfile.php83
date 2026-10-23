@@ -1,0 +1,68 @@
+# PHP-FPM 8.3 (Alpine) image for Invision Community 5.
+#
+# IC5 supports PHP 8.1-8.3 (8.2/8.3 recommended; 8.4 is blocked by its installer as of 5.0.19).
+# 8.3.36 is the 2026-10-21 security release that fixes CVE-2026-109618/-109619, the reason the
+# forum moves to IC5 at all: 4.6.8 and 4.7.x can only run on PHP versions that got no fix.
+# Same extension set as Dockerfile.php81; the ACP requirements checker has the final word.
+#
+#   docker build -f Dockerfile.php83 -t msmilinskas/ipboard-php:php83 .
+#
+# IC5 PHP extension floor (per the ACP requirements checker):
+#   gd, intl, mbstring, mysqli, zip, exif, curl, dom, openssl, xml, json
+# The last five ship enabled in the base image; the rest are built below.
+#
+# Base pinned to a digest for reproducible builds. Re-pin on every PHP security release:
+#   docker buildx imagetools inspect php:8.3-fpm-alpine   # -> Digest: sha256:...
+# The tag is kept for human readability; the @sha256 is what Docker resolves.
+FROM php:8.3.36-fpm-alpine@sha256:aaf1ad25fc6484613be770743d1038e98e3e7e07409d78b97410eccdf3628f75
+
+# --- Runtime shared libs the extensions link against (stay in the final image) ---
+RUN apk add --no-cache \
+      freetype \
+      libjpeg-turbo \
+      libpng \
+      libzip \
+      icu-libs \
+      oniguruma \
+      libssh2 \
+      libmemcached-libs \
+      zlib
+
+# --- Build deps go in a virtual package set, compiled, then dropped to keep the
+#     image small. PHPIZE_DEPS (autoconf/gcc/make/...) comes from the base image. ---
+ENV BUILD_DEPS="$PHPIZE_DEPS \
+      freetype-dev libjpeg-turbo-dev libpng-dev libzip-dev \
+      icu-dev oniguruma-dev libssh2-dev \
+      libmemcached-dev cyrus-sasl-dev zlib-dev"
+
+RUN set -eux; \
+    apk add --no-cache --virtual .build-deps $BUILD_DEPS; \
+    docker-php-ext-configure gd --with-freetype --with-jpeg; \
+    docker-php-ext-install -j"$(nproc)" \
+      gd \
+      intl \
+      mbstring \
+      mysqli \
+      zip \
+      exif \
+      opcache; \
+    pecl install memcached ssh2; \
+    docker-php-ext-enable memcached ssh2; \
+    apk del .build-deps; \
+    rm -rf /tmp/* /usr/local/lib/php/doc/* /var/cache/apk/*
+
+# Sensible OPcache defaults for a forum. Override via the mounted php.ini if needed.
+RUN { \
+      echo "opcache.enable=1"; \
+      echo "opcache.enable_cli=0"; \
+      echo "opcache.memory_consumption=192"; \
+      echo "opcache.interned_strings_buffer=16"; \
+      echo "opcache.max_accelerated_files=20000"; \
+      echo "opcache.validate_timestamps=1"; \
+      echo "opcache.revalidate_freq=60"; \
+    } > /usr/local/etc/php/conf.d/10-opcache.ini
+
+# Don't advertise the PHP version in X-Powered-By (the forum's 7.3.17 was readable from outside).
+RUN echo "expose_php=Off" > /usr/local/etc/php/conf.d/20-security.ini
+
+CMD ["php-fpm"]
