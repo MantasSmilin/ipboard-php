@@ -1,15 +1,22 @@
-# PHP-FPM 8.3 (Alpine) image for Invision Community 5.
+# PHP-FPM 8.3 (Alpine) image for Invision Community 4.7 (and IC5 later).
 #
-# IC5 supports PHP 8.1-8.3 (8.2/8.3 recommended; 8.4 is blocked by its installer as of 5.0.19).
-# 8.3.36 is the 2026-10-21 security release that fixes CVE-2026-109618/-109619, the reason the
-# forum moves to IC5 at all: 4.6.8 and 4.7.x can only run on PHP versions that got no fix.
-# Same extension set as Dockerfile.php81; the ACP requirements checker has the final word.
+# IC 4.7 is documented for PHP 8.0/8.1 only; we run it on 8.3 anyway (decided 2026-10-23) because
+# 8.3.36 is the 2026-10-21 security release that fixes CVE-2026-109618/-109619 and 8.1 got no fix.
+# IC5 supports 8.1-8.3, so the same image serves it if the forum ever moves there.
 #
 #   docker build -f Dockerfile.php83 -t msmilinskas/ipboard-php:php83 .
 #
-# IC5 PHP extension floor (per the ACP requirements checker):
-#   gd, intl, mbstring, mysqli, zip, exif, curl, dom, openssl, xml, json
-# The last five ship enabled in the base image; the rest are built below.
+# Extensions, checked against IC's requirements checker (ips4.php) and its ACP support page:
+#   required:    curl, dom, gd, mbstring, mysqli, openssl, session, simplexml, xml, xmlreader,
+#                xmlwriter (base image, except gd/mbstring/mysqli built below)
+#   recommended: zip, exif, intl (built below)
+#   used when present, so built below:
+#     gmp    - push notifications (Minishlink WebPush needs it for VAPID); the ACP flags it
+#     bcmath - IC's \IPS\Math\Number and Brick\Math fall back to slow pure-PHP maths without it
+#     redis  - the only caching engine IC 4.7 offers (ACP -> Advanced configuration -> Data
+#              storage); memcached support is gone from IC, so the memcached extension was dropped
+#   sodium and fileinfo ship enabled in the base image (JWT EdDSA, upload type checks).
+#   Not built: imagick (IC uses GD unless told otherwise; ImageMagick adds a large attack surface).
 #
 # Base pinned to a digest for reproducible builds. Re-pin on every PHP security release:
 #   docker buildx imagetools inspect php:8.3-fpm-alpine   # -> Digest: sha256:...
@@ -25,15 +32,14 @@ RUN apk add --no-cache \
       icu-libs \
       oniguruma \
       libssh2 \
-      libmemcached-libs \
+      gmp \
       zlib
 
 # --- Build deps go in a virtual package set, compiled, then dropped to keep the
 #     image small. PHPIZE_DEPS (autoconf/gcc/make/...) comes from the base image. ---
 ENV BUILD_DEPS="$PHPIZE_DEPS \
       freetype-dev libjpeg-turbo-dev libpng-dev libzip-dev \
-      icu-dev oniguruma-dev libssh2-dev \
-      libmemcached-dev cyrus-sasl-dev zlib-dev"
+      icu-dev oniguruma-dev libssh2-dev gmp-dev zlib-dev"
 
 RUN set -eux; \
     apk add --no-cache --virtual .build-deps $BUILD_DEPS; \
@@ -45,9 +51,11 @@ RUN set -eux; \
       mysqli \
       zip \
       exif \
+      gmp \
+      bcmath \
       opcache; \
-    pecl install memcached ssh2; \
-    docker-php-ext-enable memcached ssh2; \
+    pecl install redis ssh2; \
+    docker-php-ext-enable redis ssh2; \
     apk del .build-deps; \
     rm -rf /tmp/* /usr/local/lib/php/doc/* /var/cache/apk/*
 
