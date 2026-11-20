@@ -2,6 +2,9 @@
 #
 # IC 4.7 is documented for PHP 8.0/8.1 only; we run it on 8.3 anyway (decided 2026-10-23) because
 # 8.3.36 is the 2026-10-21 security release that fixes CVE-2026-109618/-109619 and 8.1 got no fix.
+# 8.3.37 (2026-11-19) fixes five more critical advisories: session RCEs (CVE-2026-126714,
+# -115560), a timezone cache use-after-free (-129496), a session shutdown use-after-free
+# (-129481) and PHP-FPM request smuggling (-129289).
 # IC5 supports 8.1-8.3, so the same image serves it if the forum ever moves there.
 #
 #   docker build -f Dockerfile.php83 -t msmilinskas/ipboard-php:php83 .
@@ -21,7 +24,7 @@
 # Base pinned to a digest for reproducible builds. Re-pin on every PHP security release:
 #   docker buildx imagetools inspect php:8.3-fpm-alpine   # -> Digest: sha256:...
 # The tag is kept for human readability; the @sha256 is what Docker resolves.
-FROM php:8.3.36-fpm-alpine@sha256:aaf1ad25fc6484613be770743d1038e98e3e7e07409d78b97410eccdf3628f75
+FROM php:8.3.37-fpm-alpine@sha256:5dd9d8f16428908a77e3084ef77b27ab47bf63d5af2fe5b7eb8906610672de47
 
 # --- Runtime shared libs the extensions link against (stay in the final image) ---
 RUN apk add --no-cache \
